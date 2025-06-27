@@ -22,7 +22,9 @@ from .models import (
     CoordinationResponse, 
     AgentStatus, 
     SystemHealth,
-    QualityMetrics
+    QualityMetrics,
+    CoordinationRequestWithClient,
+    CoordinationResponseWithClient
 )
 
 # Configure logging
@@ -112,6 +114,81 @@ async def coordinate_request(
     except Exception as e:
         logger.error(f"Coordination error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Coordination failed: {str(e)}")
+
+# CLIENT-AWARE COORDINATION ENDPOINTS
+
+@app.post("/coordinate/client", response_model=CoordinationResponseWithClient)
+async def coordinate_request_with_client(
+    request: CoordinationRequestWithClient,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Client-aware coordination endpoint
+    Processes requests with optional client context integration
+    """
+    try:
+        start_time = time.time()
+        
+        logger.info(f"Client-aware coordination request from {current_user.email} for client {request.client_id}")
+        
+        # Process with client context
+        response = await coordinator.process_request_with_client(request, current_user)
+        
+        # Check SLA compliance
+        processing_time = time.time() - start_time
+        if processing_time > 2.0:
+            logger.warning(f"SLA violation: Client request took {processing_time:.2f}s")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Client coordination error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Client coordination failed: {str(e)}")
+
+@app.get("/clients/{client_id}/context")
+async def get_client_context_preview(
+    client_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Preview what client context would be available"""
+    try:
+        context = await coordinator._get_client_context(client_id, current_user)
+        if not context:
+            raise HTTPException(status_code=404, detail="Client not found or access denied")
+        
+        return {
+            "client_id": context.client_id,
+            "has_brand_voice": context.brand_voice is not None,
+            "has_target_audience": context.target_audience is not None,
+            "compliance_requirements_count": len(context.compliance_notes or []),
+            "preview": {
+                "brand_tone": context.brand_voice.get("tone") if context.brand_voice else None,
+                "primary_audience": context.target_audience.get("primary_audience") if context.target_audience else None,
+                "compliance_summary": context.compliance_notes[:3] if context.compliance_notes else []
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving client context: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve client context")
+
+@app.get("/clients")
+async def list_accessible_clients(
+    current_user: User = Depends(get_current_user)
+):
+    """List client IDs accessible to the current user"""
+    try:
+        from .client_storage import client_storage_service
+        client_ids = await client_storage_service.list_client_ids(current_user.user_id)
+        return {
+            "client_ids": client_ids,
+            "count": len(client_ids),
+            "user_id": current_user.user_id
+        }
+    except Exception as e:
+        logger.error(f"Error listing clients: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list accessible clients")
 
 @app.get("/agents/status", response_model=List[AgentStatus])
 async def get_agent_status(current_user: User = Depends(get_current_user)):

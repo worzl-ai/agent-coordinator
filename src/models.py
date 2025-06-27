@@ -18,6 +18,14 @@ class AgentType(str, Enum):
     TECHNICAL_SEO = "technical_seo"
     PROJECT_PLANNING = "project_planning"
     BRD_GENERATION = "brd_generation"
+    SOCIAL_MEDIA = "social_media"
+
+class ClientCardType(str, Enum):
+    """Types of client cards for data filtering"""
+    BRAND_GUIDELINES = "brand_guidelines"
+    TARGET_AUDIENCE = "target_audience"
+    CLIENT_PROFILE = "client_profile"
+    CONTENT_BRIEF = "content_brief"
 
 class AgentStatusEnum(str, Enum):
     HEALTHY = "healthy"
@@ -157,3 +165,21 @@ class CircuitBreakerState(BaseModel):
     success_threshold: int = 5
     failure_threshold: int = 10
     timeout_duration: int = 60  # seconds
+
+# Client Context Models for Card Integration
+
+class CoordinationRequestWithClient(CoordinationRequest):
+    """Extended coordination request with client context"""
+    client_id: Optional[str] = Field(default=None, description="Client ID for context retrieval")
+    use_client_context: bool = Field(default=False, description="Whether to use client context")
+
+class ClientContext(BaseModel):
+    """Simplified client context for agents"""
+    client_id: str
+    brand_voice: Optional[Dict[str, Any]] = Field(default=None, description="Brand voice and tone guidelines")
+    target_audience: Optional[Dict[str, Any]] = Field(default=None, description="Target audience information")
+    compliance_notes: Optional[List[str]] = Field(default=None, description="Compliance requirements")
+    
+class CoordinationResponseWithClient(CoordinationResponse):
+    """Extended response with client context info"""
+    client_context_used: bool = Field(default=False, description="Whether client context was used in processing")

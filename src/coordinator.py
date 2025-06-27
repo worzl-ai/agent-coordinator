@@ -16,7 +16,11 @@ from .models import (
     QualityMetrics,
     User,
     AgentResponse,
-    AgentStatusEnum
+    AgentStatusEnum,
+    CoordinationRequestWithClient,
+    CoordinationResponseWithClient,
+    ClientContext,
+    ClientCardType
 )
 import logging
 import random
@@ -202,4 +206,163 @@ class AgentCoordinator:
         logger.info("Entering maintenance mode")
         for agent_id in self.agents:
             self.agents[agent_id]["status"] = AgentStatusEnum.MAINTENANCE
+    
+    # CLIENT CONTEXT METHODS
+    
+    async def process_request_with_client(
+        self, 
+        request: CoordinationRequestWithClient, 
+        user: User
+    ) -> CoordinationResponseWithClient:
+        """Enhanced request processing with optional client context"""
+        
+        # Get client context if requested
+        client_context = None
+        if request.use_client_context and request.client_id:
+            client_context = await self._get_client_context(request.client_id, user)
+        
+        # Use existing processing with enhanced payload
+        request_id = str(uuid.uuid4())
+        routing_decision = self._route_request(request)
+        
+        # Enhance agent responses with client context
+        agent_responses = await self._gather_agent_responses_with_context(
+            routing_decision, 
+            client_context
+        )
+        
+        synthesized_response = self._synthesize_responses(agent_responses)
+        
+        return CoordinationResponseWithClient(
+            request_id=request_id,
+            routing_decision=routing_decision,
+            agent_responses=agent_responses,
+            synthesized_response=synthesized_response,
+            total_processing_time=random.uniform(0.1, 3.0),
+            quality_score=random.uniform(0.7, 1.0),
+            client_context_used=client_context is not None
+        )
+    
+    async def _get_client_context(self, client_id: str, user: User) -> Optional[ClientContext]:
+        """Retrieve client context with basic filtering"""
+        
+        # Validate user has access to this client
+        if not await self._validate_client_access(user, client_id):
+            logger.warning(f"User {user.user_id} denied access to client {client_id}")
+            return None
+        
+        # Get client data (placeholder - would integrate with your client card system)
+        client_data = await self._fetch_client_data(client_id)
+        
+        if not client_data:
+            logger.warning(f"No client data found for client {client_id}")
+            return None
+        
+        # Create filtered context
+        return ClientContext(
+            client_id=client_id,
+            brand_voice=self._filter_brand_data(client_data.get("brand_guidelines")),
+            target_audience=self._filter_audience_data(client_data.get("target_audience")),
+            compliance_notes=client_data.get("compliance_requirements", [])
+        )
+    
+    async def _gather_agent_responses_with_context(
+        self, 
+        routing_decision: Dict[str, Any], 
+        client_context: Optional[ClientContext]
+    ) -> List[AgentResponse]:
+        """Enhanced agent execution with client context"""
+        
+        responses = []
+        for agent in routing_decision["selected_agents"]:
+            
+            # Prepare agent-specific context
+            agent_context = self._prepare_agent_context(agent, client_context)
+            
+            # Simulate agent call with context (replace with actual HTTP calls)
+            response = AgentResponse(
+                agent_id=agent["type"].value,
+                agent_type=agent["type"],
+                response=f"Response with context: {agent_context}",
+                confidence=0.9,
+                processing_time=random.uniform(0.1, 1.0),
+                metadata={"client_context_used": client_context is not None}
+            )
+            responses.append(response)
+        
+        return responses
+    
+    def _prepare_agent_context(
+        self, 
+        agent: Dict[str, Any], 
+        client_context: Optional[ClientContext]
+    ) -> Dict[str, Any]:
+        """Prepare filtered context for specific agent"""
+        
+        if not client_context:
+            return {}
+        
+        agent_type = agent["type"]
+        
+        # Agent-specific filtering rules
+        if agent_type == AgentType.CONTENT_RESEARCH:
+            return {
+                "brand_voice": client_context.brand_voice,
+                "target_audience": client_context.target_audience,
+                "compliance_notes": client_context.compliance_notes
+            }
+        elif agent_type == AgentType.TECHNICAL_SEO:
+            return {
+                "brand_voice": client_context.brand_voice.get("tone") if client_context.brand_voice else None,
+                "compliance_notes": client_context.compliance_notes
+            }
+        else:
+            return {"client_id": client_context.client_id}
+    
+    # Helper methods (implement based on your client card system)
+    async def _validate_client_access(self, user: User, client_id: str) -> bool:
+        """Validate user can access this client's data"""
+        from .client_storage import client_storage_service
+        
+        # Get list of clients this user can access
+        accessible_clients = await client_storage_service.list_client_ids(user.user_id)
+        
+        if client_id in accessible_clients:
+            logger.info(f"Access granted for user {user.user_id} to client {client_id}")
+            return True
+        else:
+            logger.warning(f"Access denied for user {user.user_id} to client {client_id}")
+            return False
+    
+    async def _fetch_client_data(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch client data from your card system"""
+        from .client_storage import client_storage_service
+        
+        logger.info(f"Fetching client data for {client_id}")
+        return await client_storage_service.get_client_data(client_id)
+    
+    def _filter_brand_data(self, brand_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Filter brand data for agent consumption"""
+        if not brand_data:
+            return None
+        
+        return {
+            "tone": brand_data.get("tone"),
+            "voice": brand_data.get("voice"),
+            "restrictions": brand_data.get("avoid_words", []),
+            "messaging_pillars": brand_data.get("messaging_pillars", [])
+        }
+    
+    def _filter_audience_data(self, audience_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Filter audience data for agent consumption"""
+        if not audience_data:
+            return None
+        
+        return {
+            "primary_audience": audience_data.get("primary"),
+            "demographics": {
+                "age_range": audience_data.get("age_range"),
+                "interests": audience_data.get("interests", [])
+            }
+        }
 
